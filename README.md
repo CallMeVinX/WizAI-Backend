@@ -214,13 +214,35 @@ pytest --cov=app tests/
 
 ## LLM Engine Selection & Cost Analysis
 
-- **Chosen Model**: `gemini-3.6-flash` (Google Gemini 3.6 Flash via official `google-genai` SDK).
-- **Why Gemini 3.6 Flash (vs. `gemini-2.0-flash` or `gemini-3.8-flash`)**:
-  1. **Production GA Status & Quota Stability**: Google AI Studio has officially superseded `gemini-2.0-flash` (returning `404 NOT_FOUND` instructing callers to use `gemini-3.6-flash`). Non-standard aliases like `gemini-3.8-flash` suffer from emergency rate-limiting (capped at 20 requests/day). In contrast, `gemini-3.6-flash` is active with standard developer quotas (15 RPM / 1,500 requests/day on free tier).
-  2. **Sub-Second Latency**: Delivers TTFT under 400ms, essential for real-time CRM API endpoints (`POST /api/leads/extract-source`).
-  3. **Strict JSON Schema Compliance**: Accurately emits Pydantic-compliant structured payloads (`is_duplicate`, `confidence`, `reasoning`) without extraneous markdown formatting.
-  4. **Minimal Inference Cost**: At $0.10/1M input tokens, total project spend across all 2,049 seed leads is **<$0.01** (covered entirely by the free tier).
-  5. **Hermetic Test Guarantee**: All 52 unit/integration tests run **100% offline with zero external API calls**, incurring $0.00 in testing expenses.
+- **Configured Model**: `gemini-3.6-flash` (Google Gemini Flash via the official `google-genai` SDK).
+- **Technical Selection Rationale**:
+  1. **Upstream API Migration Directives**: When invoking legacy endpoints (`gemini-2.0-flash`), Google AI Studio's API explicitly instructs callers: *"This model models/gemini-2.0-flash is no longer available. Please update your code to use models/gemini-3.6-flash"*. The platform adopts this upstream recommendation as default, while allowing zero-code switching via `GEMINI_MODEL` in `.env` (e.g., `gemini-2.5-flash` or `gemini-1.5-flash` depending on account tier).
+  2. **Sub-Second Latency (<400ms TTFT)**: Flash-class models are engineered for ultra-low time-to-first-token, ensuring synchronous CRM API requests (`POST /api/leads/extract-source` and deduplication scoring) execute without causing HTTP client timeouts.
+  3. **Strict JSON Schema Compliance**: Accurately outputs structured JSON payloads matching Pydantic response contracts (`is_duplicate`, `confidence`, `reasoning`, `channel`, `detail`) without conversational prose or markdown formatting issues.
+  4. **Selective Hybrid Invocation & Cost Efficiency**:
+     - Instead of naive $O(N^2)$ LLM pairwise comparison (~4.2 million comparisons for 2,049 records), inverted-index blocking reduces candidate volume to 295 pairs.
+     - Deterministic multi-signal scoring classifies clear matches ($\ge 0.80$) and non-duplicates ($< 0.60$).
+     - The LLM is invoked **only** for ambiguous borderline pairs ($0.60 \le \text{score} < 0.80$), strictly capped at 5 pairs per run.
+     - Total inference cost across the entire 2,049-lead seed dataset is **<$0.01**, running entirely within Google AI Studio's free tier (15 RPM / 1,500 RPD).
+  5. **Hermetic Zero-Cost Testing**: All 52 automated tests in `pytest` run **100% offline with mocked LLM interfaces**, incurring $0.00 in testing expenses.
+  6. **Resilient Offline Fail-Safe**: If `GEMINI_API_KEY` is omitted or network connectivity drops, the system seamlessly degrades to rule-based regex extraction and deterministic similarity scoring with zero downtime.
+
+---
+
+## What I'd Do Next (Roadmap)
+
+Given additional time and enterprise production scope, here are high-leverage architectural enhancements:
+
+1. **Vectorized Semantic Similarity (`pgvector`)**:
+   - Store 768-dimensional dense vector embeddings for company names, job titles, and conversational sales notes using Google's `text-embedding-004`.
+   - Perform sub-millisecond approximate nearest neighbor (ANN) searches directly within PostgreSQL to catch phonetic misspellings, colloquial corporate acronyms, and international rebrandings.
+2. **Interactive Field-Level Merge Execution**:
+   - The current platform deliberately avoids destructive auto-merging per the PRD, instead persisting cluster groupings (`dedup_group_id`) and operator verifications (`status = confirmed`).
+   - The next evolution is a human-in-the-loop merge engine allowing sales operators to cherry-pick master values across conflicting fields (e.g., retaining the latest phone number, oldest creation date, and concatenating historical activity logs) before archiving secondary records.
+3. **Asynchronous Job Processing (ARQ / Celery + Redis)**:
+   - Offload multi-thousand record deduplication sweeps and bulk CSV imports to dedicated background workers, providing real-time WebSocket progress bars and webhook completion alerts.
+4. **Bi-Directional Change Data Capture (CDC)**:
+   - Implement database triggers or Debezium streaming to push normalized attribution channels, clean contact profiles, and verified deduplication clusters back into enterprise downstream systems (Snowflake, BigQuery, or Salesforce).
 
 ---
 
