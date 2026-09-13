@@ -85,7 +85,9 @@ flowchart TD
 ## Quickstart & Local Setup
 
 ### 1. Prerequisites
-- **Python 3.11+**
+- **Python 3.11 or 3.12 (Strongly Recommended)**
+  > [!IMPORTANT]
+  > Use **Python 3.11** or **3.12**. Avoid experimental preview versions (e.g., Python 3.14+) because PyPI does not yet provide pre-compiled binary wheels (`.whl`) for dependencies like `pydantic-core`, which triggers local Rust/C++ compilation errors unless Microsoft C++ Build Tools and Cargo are installed.
 - **Docker & Docker Compose** (or PostgreSQL 14+ running locally)
 - **Gemini API Key** (optional, available via [Google AI Studio](https://aistudio.google.com/))
 
@@ -136,19 +138,37 @@ DEDUPE_LLM_MAX_PAIRS=5
 
 ### 4. Installation & Database Initialization
 
-```bash
-# Create and activate virtual environment
-python -m venv venv
+#### Step 1: Create and Activate Virtual Environment
+Specify Python 3.11 or 3.12 when initializing the environment:
 
-# Windows (PowerShell)
+**Windows (PowerShell)**:
+```powershell
+# Using Python launcher with specific version (recommended if multiple versions installed)
+py -3.11 -m venv venv
+# Or if you are using Python 3.12:
+# py -3.12 -m venv venv
+
+# Activate virtual environment
 .\venv\Scripts\Activate.ps1
+```
 
-# Linux / macOS
+**Linux / macOS**:
+```bash
+python3.11 -m venv venv
 source venv/bin/activate
+```
 
-# Install dependencies
+#### Step 2: Install Dependencies
+```bash
+# Upgrade pip to ensure latest wheel resolution
+python -m pip install --upgrade pip
+
+# Install dependencies (will use fast pre-built binary wheels)
 pip install -r requirements.txt
+```
 
+#### Step 3: Initialize Database & Seed
+```bash
 # Run migrations (or initialize tables via seed)
 alembic upgrade head
 
